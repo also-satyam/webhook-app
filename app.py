@@ -4,26 +4,22 @@ from threading import Lock
 app = Flask(__name__)
 
 lock = Lock()
-latest_signal = None
-last_ack_id = None
-
+latest_signal = None   # sirf ek pending signal
 
 # ===============================
-# POST SIGNAL (TradingView / Admin)
+# POST SIGNAL (TradingView/Admin)
 # ===============================
 @app.route("/signal", methods=["POST"])
 def post_signal():
     global latest_signal
-
     data = request.get_json(force=True)
 
-    required = ["signal_id", "licence", "symbol", "action"]
-    if not all(k in data for k in required):
-        return jsonify({"status": "invalid_payload"}), 400
+    if not data or "signal_id" not in data:
+        return jsonify({"status": "invalid_signal"}), 400
 
     with lock:
-        if latest_signal is not None:
-            return jsonify({"status": "pending_signal_exists"})
+        if latest_signal is not None and latest_signal["signal_id"] == data["signal_id"]:
+            return jsonify({"status": "ignored_duplicate"})
 
         latest_signal = data
         print("✅ SIGNAL STORED:", latest_signal)
@@ -36,10 +32,8 @@ def post_signal():
 # ===============================
 @app.route("/signal", methods=["GET"])
 def get_signal():
-    global latest_signal, last_ack_id
-
+    global latest_signal
     licence = request.args.get("licence")
-    last_id = request.args.get("last_id")
 
     if not licence:
         return jsonify({"status": "empty"})
@@ -48,35 +42,19 @@ def get_signal():
         if latest_signal is None:
             return jsonify({"status": "empty"})
 
-        if latest_signal["licence"] != licence:
+        # licence check
+        if latest_signal.get("licence") != licence:
             return jsonify({"status": "empty"})
 
-        if last_id == latest_signal["signal_id"]:
-            return jsonify({"status": "empty"})
+        # ✔ send the signal
+        signal = latest_signal.copy()
 
-        return jsonify(latest_signal)
+        # ✅ auto clear signal after sending
+        latest_signal = None
 
-
-# ===============================
-# ACK (Clear signal)
-# ===============================
-@app.route("/signal/ack", methods=["POST"])
-def ack_signal():
-    global latest_signal, last_ack_id
-
-    data = request.get_json(force=True)
-    signal_id = data.get("signal_id")
-
-    with lock:
-        if latest_signal and signal_id == latest_signal["signal_id"]:
-            last_ack_id = signal_id
-            latest_signal = None
-            print("🧹 SIGNAL CLEARED:", signal_id)
-            return jsonify({"status": "cleared"})
-
-    return jsonify({"status": "ignored"})
+        return jsonify(signal)
 
 
 @app.route("/")
 def health():
-    return "🚀 Signal-ID Webhook Running"
+    return "🚀 Signal ID based secure webhook running (no ACK needed)"
