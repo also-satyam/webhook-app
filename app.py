@@ -15,10 +15,13 @@ def post_signal():
     global latest_signal
 
     data = request.get_json(force=True)
-    if not data:
-        return jsonify({"status": "invalid_payload"}), 400
 
     with signal_lock:
+        # 🔒 already ek signal pending hai
+        if latest_signal is not None:
+            print("⏳ Signal ignored (already pending)")
+            return jsonify({"status": "ignored_pending"})
+
         latest_signal = data
         print("✅ SIGNAL STORED:", latest_signal)
 
