@@ -3,8 +3,9 @@ from threading import Lock
 
 app = Flask(__name__)
 
-signal_lock = Lock()
+lock = Lock()
 latest_signal = None
+last_ack_id = None
 
 
 # ===============================
@@ -16,11 +17,13 @@ def post_signal():
 
     data = request.get_json(force=True)
 
-    with signal_lock:
-        # 🔒 already ek signal pending hai
+    required = ["signal_id", "licence", "symbol", "action"]
+    if not all(k in data for k in required):
+        return jsonify({"status": "invalid_payload"}), 400
+
+    with lock:
         if latest_signal is not None:
-            print("⏳ Signal ignored (already pending)")
-            return jsonify({"status": "ignored_pending"})
+            return jsonify({"status": "pending_signal_exists"})
 
         latest_signal = data
         print("✅ SIGNAL STORED:", latest_signal)
@@ -29,57 +32,51 @@ def post_signal():
 
 
 # ===============================
-# GET SIGNAL (MT5 - LICENCE PROTECTED)
+# GET SIGNAL (MT5)
 # ===============================
 @app.route("/signal", methods=["GET"])
 def get_signal():
-    global latest_signal
+    global latest_signal, last_ack_id
 
     licence = request.args.get("licence")
+    last_id = request.args.get("last_id")
 
     if not licence:
-        return jsonify({"status": "empty"})   # licence missing
+        return jsonify({"status": "empty"})
 
-    with signal_lock:
+    with lock:
         if latest_signal is None:
             return jsonify({"status": "empty"})
 
-        signal_licence = latest_signal.get("licence")
-
-        # 🔐 LICENCE CHECK FIRST
-        if licence != signal_licence:
-            print("⛔ Licence mismatch GET |", licence)
+        if latest_signal["licence"] != licence:
             return jsonify({"status": "empty"})
 
-        # ✔ licence valid → signal allowed
+        if last_id == latest_signal["signal_id"]:
+            return jsonify({"status": "empty"})
+
         return jsonify(latest_signal)
 
 
 # ===============================
-# ACK (Clear signal after execution)
+# ACK (Clear signal)
 # ===============================
 @app.route("/signal/ack", methods=["POST"])
 def ack_signal():
-    global latest_signal
+    global latest_signal, last_ack_id
 
     data = request.get_json(force=True)
-    if not data:
-        return jsonify({"status": "invalid_payload"}), 400
+    signal_id = data.get("signal_id")
 
-    ack_licence = data.get("licence")
-
-    with signal_lock:
-        if latest_signal is None:
-            return jsonify({"status": "already_empty"})
-
-        if ack_licence == latest_signal.get("licence"):
+    with lock:
+        if latest_signal and signal_id == latest_signal["signal_id"]:
+            last_ack_id = signal_id
             latest_signal = None
-            print("🧹 SIGNAL CLEARED | Licence:", ack_licence)
+            print("🧹 SIGNAL CLEARED:", signal_id)
             return jsonify({"status": "cleared"})
 
-        return jsonify({"status": "licence_mismatch"})
+    return jsonify({"status": "ignored"})
 
 
 @app.route("/")
 def health():
-    return "🚀 Secure Webhook Server Running"
+    return "🚀 Signal-ID Webhook Running"
