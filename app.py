@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from threading import Lock
 import time
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 lock = Lock()
@@ -10,7 +11,6 @@ lock = Lock()
 # { licence : { signal_data + server_time } }
 # ======================================================
 signals = {}
-
 
 # ======================================================
 # POST SIGNAL (TradingView / Admin)
@@ -34,17 +34,30 @@ def post_signal():
     signal_id = str(data["signal_id"])
 
     with lock:
+
         # Duplicate protection per licence
         if licence in signals and \
            str(signals[licence].get("signal_id")) == signal_id:
             return jsonify({"status": "ignored_duplicate"})
 
-        # 🔥 Add server timestamp
-        data["server_time"] = int(time.time())
+        # 🔥 Add UTC timestamp (seconds precision)
+        utc_epoch = int(time.time())
+
+        # 🔥 Add IST readable timestamp
+        ist_time = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+
+        data["server_time_utc"] = utc_epoch
+        data["server_time_ist"] = ist_time.strftime("%Y-%m-%d %H:%M:%S")
 
         signals[licence] = data
 
-        print(f"✅ Signal stored | Licence: {licence} | ID: {signal_id}")
+        print(f"""
+✅ SIGNAL STORED
+Licence     : {licence}
+Signal ID   : {signal_id}
+UTC Time    : {utc_epoch}
+IST Time    : {data['server_time_ist']}
+""")
 
     return jsonify({"status": "ok"})
 
@@ -67,10 +80,14 @@ def get_signal():
         if licence not in signals:
             return jsonify({"status": "empty"})
 
-        # Send & auto-clear
+        # 🔥 Send & Auto Clear
         signal_to_send = signals.pop(licence)
 
-        print(f"📤 Signal sent & cleared | Licence: {licence} | ID: {signal_to_send.get('signal_id')}")
+        print(f"""
+📤 SIGNAL SENT & CLEARED
+Licence   : {licence}
+Signal ID : {signal_to_send.get('signal_id')}
+""")
 
         return jsonify(signal_to_send)
 
@@ -98,11 +115,19 @@ def clear_signal():
 
 
 # ======================================================
+# DEBUG – CHECK CURRENT SIGNAL
+# ======================================================
+@app.route("/debug", methods=["GET"])
+def debug():
+    return jsonify(signals)
+
+
+# ======================================================
 # HEALTH CHECK
 # ======================================================
 @app.route("/")
 def health():
-    return "🚀 Multi-Account Secure Webhook Running (Timestamp Protected)"
+    return "🚀 Multi-Account Secure Webhook Running (UTC + IST Protected)"
 
 
 # ======================================================
