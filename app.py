@@ -4,57 +4,105 @@ from threading import Lock
 app = Flask(__name__)
 
 lock = Lock()
-latest_signal = None   # sirf ek pending signal
 
-# ===============================
-# POST SIGNAL (TradingView/Admin)
-# ===============================
+# ======================================================
+# Storage Structure
+# { licence : { signal_data } }
+# ======================================================
+signals = {}
+
+
+# ======================================================
+# POST SIGNAL (TradingView / Admin)
+# ======================================================
 @app.route("/signal", methods=["POST"])
 def post_signal():
-    global latest_signal
+    global signals
+
     data = request.get_json(force=True)
 
-    if not data or "signal_id" not in data:
-        return jsonify({"status": "invalid_signal"}), 400
+    if not data:
+        return jsonify({"status": "invalid_payload"}), 400
+
+    required = ["signal_id", "licence", "symbol", "action"]
+
+    for field in required:
+        if field not in data:
+            return jsonify({"status": f"missing_{field}"}), 400
+
+    licence = str(data["licence"])
+    signal_id = str(data["signal_id"])
 
     with lock:
-        if latest_signal is not None and latest_signal["signal_id"] == data["signal_id"]:
+        # Duplicate protection per licence
+        if licence in signals and \
+           str(signals[licence].get("signal_id")) == signal_id:
             return jsonify({"status": "ignored_duplicate"})
 
-        latest_signal = data
-        print("✅ SIGNAL STORED:", latest_signal)
+        signals[licence] = data
+        print(f"✅ Signal stored | Licence: {licence} | ID: {signal_id}")
 
     return jsonify({"status": "ok"})
 
 
-# ===============================
+# ======================================================
 # GET SIGNAL (MT5)
-# ===============================
+# ======================================================
 @app.route("/signal", methods=["GET"])
 def get_signal():
-    global latest_signal
+    global signals
+
     licence = request.args.get("licence")
 
     if not licence:
         return jsonify({"status": "empty"})
 
+    licence = str(licence)
+
     with lock:
-        if latest_signal is None:
+        if licence not in signals:
             return jsonify({"status": "empty"})
 
-        # licence check
-        if latest_signal.get("licence") != licence:
-            return jsonify({"status": "empty"})
+        # Send & auto-clear
+        signal_to_send = signals.pop(licence)
 
-        # ✔ send the signal
-        signal = latest_signal.copy()
+        print(f"📤 Signal sent & cleared | Licence: {licence} | ID: {signal_to_send.get('signal_id')}")
 
-        # ✅ auto clear signal after sending
-        latest_signal = None
-
-        return jsonify(signal)
+        return jsonify(signal_to_send)
 
 
+# ======================================================
+# FORCE CLEAR (Optional – For Manual Reset)
+# ======================================================
+@app.route("/clear", methods=["POST"])
+def clear_signal():
+    global signals
+
+    data = request.get_json(force=True)
+
+    if not data or "licence" not in data:
+        return jsonify({"status": "missing_licence"}), 400
+
+    licence = str(data["licence"])
+
+    with lock:
+        if licence in signals:
+            signals.pop(licence)
+            print(f"🧹 Signal manually cleared | Licence: {licence}")
+
+    return jsonify({"status": "cleared"})
+
+
+# ======================================================
+# HEALTH CHECK
+# ======================================================
 @app.route("/")
 def health():
-    return "🚀 Signal ID based secure webhook running (no ACK needed)"
+    return "🚀 Multi-Account Secure Webhook Running"
+
+
+# ======================================================
+# RUN SERVER
+# ======================================================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
