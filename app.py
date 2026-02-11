@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify
 from threading import Lock
+import time
 
 app = Flask(__name__)
-
 lock = Lock()
 
 # ======================================================
 # Storage Structure
-# { licence : { signal_data } }
+# { licence : { signal_data + server_time } }
 # ======================================================
 signals = {}
 
@@ -39,7 +39,11 @@ def post_signal():
            str(signals[licence].get("signal_id")) == signal_id:
             return jsonify({"status": "ignored_duplicate"})
 
+        # 🔥 Add server timestamp
+        data["server_time"] = int(time.time())
+
         signals[licence] = data
+
         print(f"✅ Signal stored | Licence: {licence} | ID: {signal_id}")
 
     return jsonify({"status": "ok"})
@@ -72,7 +76,7 @@ def get_signal():
 
 
 # ======================================================
-# FORCE CLEAR (Optional – For Manual Reset)
+# FORCE CLEAR (Optional – Manual Reset)
 # ======================================================
 @app.route("/clear", methods=["POST"])
 def clear_signal():
@@ -98,7 +102,7 @@ def clear_signal():
 # ======================================================
 @app.route("/")
 def health():
-    return "🚀 Multi-Account Secure Webhook Running"
+    return "🚀 Multi-Account Secure Webhook Running (Timestamp Protected)"
 
 
 # ======================================================
