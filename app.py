@@ -5,6 +5,8 @@ from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 lock = Lock()
+SIGNAL_EXPIRY_SECONDS = 15
+
 
 # ======================================================
 # Storage Structure
@@ -51,13 +53,7 @@ def post_signal():
 
         signals[licence] = data
 
-        print(f"""
-✅ SIGNAL STORED
-Licence     : {licence}
-Signal ID   : {signal_id}
-UTC Time    : {utc_epoch}
-IST Time    : {data['server_time_ist']}
-""")
+        print(f"""✅ SIGNAL STOREDLicence     : {licence} Signal ID   : {signal_id} UTC Time    : {utc_epoch} IST Time    : {data['server_time_ist']} """)
 
     return jsonify({"status": "ok"})
 
@@ -80,16 +76,24 @@ def get_signal():
         if licence not in signals:
             return jsonify({"status": "empty"})
 
-        # 🔥 Send & Auto Clear
+        signal_data = signals[licence]
+
+        current_time = int(time.time())
+        signal_time = signal_data.get("server_time_utc", 0)
+
+        # 🔥 CHECK EXPIRY
+        if current_time - signal_time > SIGNAL_EXPIRY_SECONDS:
+            signals.pop(licence)
+            print(f"⏳ SIGNAL EXPIRED & CLEARED | Licence: {licence}")
+            return jsonify({"status": "empty"})
+
+        # 🔥 VALID SIGNAL → SEND & CLEAR
         signal_to_send = signals.pop(licence)
 
-        print(f"""
-📤 SIGNAL SENT & CLEARED
-Licence   : {licence}
-Signal ID : {signal_to_send.get('signal_id')}
-""")
+        print(f"""📤 SIGNAL SENT & CLEAREDLicence   : {licence}Signal ID : {signal_to_send.get('signal_id')}""")
 
         return jsonify(signal_to_send)
+
 
 
 # ======================================================
