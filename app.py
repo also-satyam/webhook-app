@@ -83,9 +83,9 @@ def get_signal():
 
         # 🔥 CHECK EXPIRY
         if current_time - signal_time > SIGNAL_EXPIRY_SECONDS:
-            signals.pop(licence)
-            print(f"⏳ SIGNAL EXPIRED & CLEARED | Licence: {licence}")
-            return jsonify({"status": "empty"})
+            expired_signal = signals.pop(licence)
+            print(f"""⏳ SIGNAL EXPIREDLicence   : {licence}Signal ID : {expired_signal.get('signal_id')}""")
+            return jsonify({        "status": "expired",        "reason": "Signal expired before execution",        "signal_id": expired_signal.get("signal_id"),      "symbol": expired_signal.get("symbol"),        "action": expired_signal.get("action")    })
 
         # 🔥 VALID SIGNAL → SEND & CLEAR
         signal_to_send = signals.pop(licence)
